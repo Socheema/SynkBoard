@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -10,14 +10,23 @@ import { Plus, Trash2 } from 'lucide-react';
 export default function TaskWidget({ widget, canEdit }) {
   const [tasks, setTasks] = useState(widget.content?.tasks || []);
   const [newTask, setNewTask] = useState('');
+  const isUpdatingRef = useRef(false);
 
   // Update local state when widget content changes from realtime
   useEffect(() => {
-    console.log('✅ Task widget content updated:', widget.content);
-    setTasks(widget.content?.tasks || []);
-  }, [widget.content]);
+    if (isUpdatingRef.current) return;
+
+    const newTasks = widget.content?.tasks || [];
+
+    // Only update if actually different
+    if (JSON.stringify(newTasks) !== JSON.stringify(tasks)) {
+      console.log('✅ Task widget content updated from realtime');
+      setTasks(newTasks);
+    }
+  }, [widget.content?.tasks]); // Only depend on widget.content.tasks
 
   async function updateTasks(updatedTasks) {
+    isUpdatingRef.current = true;
     setTasks(updatedTasks);
 
     try {
@@ -38,6 +47,10 @@ export default function TaskWidget({ widget, canEdit }) {
       console.log('✅ Tasks updated successfully');
     } catch (error) {
       console.error('❌ Error updating tasks:', error);
+    } finally {
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 1000);
     }
   }
 

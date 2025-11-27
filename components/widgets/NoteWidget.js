@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Textarea } from '@/components/ui/textarea';
 import { useDebounce } from '@/hook/useDebounce';
@@ -9,29 +9,38 @@ export default function NoteWidget({ widget, canEdit }) {
   const [text, setText] = useState(widget.content?.text || '');
   const debouncedText = useDebounce(text, 500);
   const [isSaving, setIsSaving] = useState(false);
+  const isUpdatingRef = useRef(false);
+  const lastSavedTextRef = useRef(widget.content?.text || '');
 
   // Update local state when widget content changes from realtime
   useEffect(() => {
-    // Only update if the text is different and we're not currently typing
-    if (widget.content?.text !== text && !isSaving) {
+    if (isUpdatingRef.current) return;
+
+    const newText = widget.content?.text || '';
+
+    // Only update if the text is different from what we have
+    if (newText !== text && newText !== lastSavedTextRef.current) {
       console.log('📝 Note widget content updated from realtime');
-      setText(widget.content?.text || '');
+      setText(newText);
+      lastSavedTextRef.current = newText;
     }
-  }, [widget.content?.text]);
+  }, [widget.content?.text]); // Only depend on widget.content.text
 
   useEffect(() => {
     // Save to database when debounced text changes
-    if (debouncedText !== widget.content?.text && canEdit) {
+    if (debouncedText !== lastSavedTextRef.current && canEdit) {
       saveNote();
     }
-  }, [debouncedText]);
+  }, [debouncedText, canEdit]);
 
   async function saveNote() {
+    isUpdatingRef.current = true;
+
     try {
       setIsSaving(true);
       const supabase = createClient();
 
-      console.log('💾 Saving note:', debouncedText);
+      console.log('💾 Saving note');
 
       const { error } = await supabase
         .from('widgets')
@@ -43,11 +52,15 @@ export default function NoteWidget({ widget, canEdit }) {
 
       if (error) throw error;
 
+      lastSavedTextRef.current = debouncedText;
       console.log('✅ Note saved successfully');
     } catch (error) {
       console.error('❌ Error saving note:', error);
     } finally {
       setIsSaving(false);
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 1000);
     }
   }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui/button';
@@ -9,21 +9,35 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Trash2 } from 'lucide-react';
 
 export default function ChartWidget({ widget, canEdit }) {
-  // IMPORTANT: Sync state from widget prop changes (realtime updates)
   const [chartType, setChartType] = useState(widget.content?.type || 'line');
   const [data, setData] = useState(widget.content?.data || []);
-
-  // Update local state when widget content changes from realtime
-  useEffect(() => {
-    console.log('📊 Chart widget content updated:', widget.content);
-    setChartType(widget.content?.type || 'line');
-    setData(widget.content?.data || []);
-  }, [widget.content]);
-
   const [newLabel, setNewLabel] = useState('');
   const [newValue, setNewValue] = useState('');
 
+  // Use ref to track if we're currently updating to prevent loops
+  const isUpdatingRef = useRef(false);
+
+  // Update local state when widget content changes from realtime
+  useEffect(() => {
+    if (isUpdatingRef.current) return; // Skip if we're the ones updating
+
+    const newType = widget.content?.type || 'line';
+    const newData = widget.content?.data || [];
+
+    // Only update if actually different (deep comparison for data)
+    const dataChanged = JSON.stringify(newData) !== JSON.stringify(data);
+    const typeChanged = newType !== chartType;
+
+    if (dataChanged || typeChanged) {
+      console.log('📊 Chart widget content updated from realtime');
+      setChartType(newType);
+      setData(newData);
+    }
+  }, [widget.content?.type, widget.content?.data]); // Only depend on widget.content
+
   async function updateChart(updates) {
+    isUpdatingRef.current = true; // Mark that we're updating
+
     try {
       const supabase = createClient();
 
@@ -47,6 +61,11 @@ export default function ChartWidget({ widget, canEdit }) {
       console.log('✅ Chart updated successfully');
     } catch (error) {
       console.error('❌ Error updating chart:', error);
+    } finally {
+      // Reset flag after a short delay to allow realtime to propagate
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 1000);
     }
   }
 
