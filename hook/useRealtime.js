@@ -14,7 +14,11 @@ export function useRealtimeWidgets(workspaceId) {
 
     // Subscribe to widget changes
     const channel = supabase
-      .channel(`workspace:${workspaceId}`)
+      .channel(`workspace:${workspaceId}`, {
+        config: {
+          broadcast: { self: true }, // Important: receive your own updates
+        },
+      })
       .on(
         'postgres_changes',
         {
@@ -38,6 +42,7 @@ export function useRealtimeWidgets(workspaceId) {
         },
         (payload) => {
           console.log('✅ Widget updated:', payload.new);
+          // Force update the entire widget object to trigger re-render
           updateWidget(payload.new.id, payload.new);
         }
       )
