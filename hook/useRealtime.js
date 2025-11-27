@@ -1,62 +1,67 @@
-import { useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useWidgetStore } from "@/lib/store/widgetStore";
+import { useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { useWidgetStore } from '@/lib/store/widgetStore';
 
-export function useRealtimeWidgets(workspaceID) {
-  const { setWidgets, addWidget, updateWidget, deleteWidget } =
-    useWidgetStore();
+export function useRealtimeWidgets(workspaceId) {
+  const { setWidgets, addWidget, updateWidget, deleteWidget } = useWidgetStore();
 
   useEffect(() => {
-    if (!workspaceID) return;
+    if (!workspaceId) return;
+
     const supabase = createClient();
 
-    // subscribe to widget changes
+    console.log('🔌 Setting up realtime subscription for workspace:', workspaceId);
+
+    // Subscribe to widget changes
     const channel = supabase
-      .channel(`workspace:${workspaceID}`)
+      .channel(`workspace:${workspaceId}`)
       .on(
-        "postgres_changes",
+        'postgres_changes',
         {
-          event: "INSERT",
-          schema: "public",
-          table: "widgets",
-          filter: `workspace_id=eq.${workspaceID}`,
+          event: 'INSERT',
+          schema: 'public',
+          table: 'widgets',
+          filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload) => {
-          console.log("widget inserted:", payload.new);
+          console.log('✅ Widget inserted:', payload.new);
           addWidget(payload.new);
         }
       )
       .on(
-        "postgres_changes",
+        'postgres_changes',
         {
-          event: "UPDATE",
-          schema: "public",
-          table: "widgets",
-          filter: `workspace_id=eq.${workspaceID}`,
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'widgets',
+          filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload) => {
-          console.log("widget updated:", payload.new);
+          console.log('✅ Widget updated:', payload.new);
           updateWidget(payload.new.id, payload.new);
         }
       )
       .on(
-        "postgres_changes",
+        'postgres_changes',
         {
-          event: "DELETE",
-          schema: "public",
-          table: "widgets",
-          filter: `workspace_id=eq.${workspaceID}`,
+          event: 'DELETE',
+          schema: 'public',
+          table: 'widgets',
+          filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload) => {
-          console.log("widget deleted:", payload.old);
+          console.log('✅ Widget deleted:', payload.old);
           deleteWidget(payload.old.id);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 Realtime subscription status:', status);
+      });
 
-    // cleanup on unmount
+    // Cleanup on unmount or workspace change
     return () => {
+      console.log('🔌 Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
-  }, [workspaceID, setWidgets, addWidget, updateWidget, deleteWidget]);
+  }, [workspaceId, addWidget, updateWidget, deleteWidget]);
 }
