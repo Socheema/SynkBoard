@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Responsive, WidthProvider } from 'react-grid-layout';
+import { motion } from 'framer-motion';
 import { useUser } from '@clerk/nextjs';
 import { createClient } from '@/lib/supabase/client';
 import { useWidgetStore } from '@/lib/store/widgetStore';
@@ -19,10 +20,12 @@ export default function Board({ workspaceId }) {
   const { currentWorkspace } = useWorkspaceStore();
   const [isDragging, setIsDragging] = useState(false);
 
-  // Check if user can edit
+  useEffect(() => {
+    console.log('🎨 Board rendering with widgets:', widgets.length);
+  }, [widgets]);
+
   const canEdit = currentWorkspace?.role === 'owner' || currentWorkspace?.role === 'editor';
 
-  // Convert widgets to grid layout format
   const layouts = {
     lg: widgets.map((widget) => ({
       i: widget.id,
@@ -36,11 +39,10 @@ export default function Board({ workspaceId }) {
   };
 
   async function handleLayoutChange(layout, layouts) {
-    if (isDragging) return; // Don't update during drag
+    if (isDragging) return;
 
     const supabase = createClient();
 
-    // Update positions in database
     for (const item of layout) {
       const widget = widgets.find((w) => w.id === item.i);
       if (!widget) continue;
@@ -52,7 +54,6 @@ export default function Board({ workspaceId }) {
         h: item.h,
       };
 
-      // Only update if position changed
       if (JSON.stringify(widget.position) !== JSON.stringify(newPosition)) {
         await supabase
           .from('widgets')
@@ -64,9 +65,21 @@ export default function Board({ workspaceId }) {
 
   if (widgets.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+      >
         <div className="max-w-md">
-          <div className="text-6xl mb-4">📋</div>
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+            className="text-6xl mb-4"
+          >
+            📋
+          </motion.div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
             Your board is empty
           </h2>
@@ -75,18 +88,16 @@ export default function Board({ workspaceId }) {
           </p>
           <AddWidgetButton workspaceId={workspaceId} />
         </div>
-      </div>
+      </motion.div>
     );
   }
 
   return (
     <div className="relative">
-      {/* Add Widget Button - Floating */}
       <div className="fixed bottom-8 right-8 z-50">
         <AddWidgetButton workspaceId={workspaceId} />
       </div>
 
-      {/* Grid Layout */}
       <ResponsiveGridLayout
         className="layout"
         layouts={layouts}

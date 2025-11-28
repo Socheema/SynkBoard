@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Send } from 'lucide-react';
+import { Send, Sparkles, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useAI } from '@/hook/useAI';
 
 export default function ChatWidget({ widget }) {
   const { user } = useUser();
@@ -16,6 +17,8 @@ export default function ChatWidget({ widget }) {
   const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef(null);
   const supabaseRef = useRef(null);
+
+  const { loading: aiLoading, chatAssist } = useAI();
 
   useEffect(() => {
     supabaseRef.current = createClient();
@@ -42,7 +45,7 @@ export default function ChatWidget({ widget }) {
 
       if (error) throw error;
 
-      console.log('💬 Loaded messages:', data);
+      console.log('💬 Loaded messages:', data?.length || 0);
       setMessages(data || []);
     } catch (error) {
       console.error('❌ Error loading messages:', error);
@@ -59,7 +62,7 @@ export default function ChatWidget({ widget }) {
     const channel = supabase
       .channel(`chat:${widget.id}`, {
         config: {
-          broadcast: { self: false }, // Don't receive own broadcasts (we'll add optimistically)
+          broadcast: { self: false },
         },
       })
       .on(
@@ -73,16 +76,13 @@ export default function ChatWidget({ widget }) {
         (payload) => {
           console.log('✅ Chat message received:', payload.new);
 
-          // Only add if it's not from the current user (avoid duplicates)
           if (payload.new.user_id !== user.id) {
             setMessages((prev) => {
-              // Check if message already exists
               const exists = prev.some(m => m.id === payload.new.id);
               if (exists) return prev;
               return [...prev, payload.new];
             });
           } else {
-            // Update the temporary message with the real one from DB
             setMessages((prev) => {
               return prev.map(m =>
                 m.tempId && m.message === payload.new.message
@@ -111,7 +111,7 @@ export default function ChatWidget({ widget }) {
     const messageText = newMessage.trim();
     const userName = user.firstName || user.emailAddresses[0].emailAddress.split('@')[0];
 
-    // Optimistic update - add message immediately to UI
+    // Optimistic update
     const tempMessage = {
       tempId: Date.now().toString(),
       widget_id: widget.id,
@@ -140,20 +140,53 @@ export default function ChatWidget({ widget }) {
 
       if (error) throw error;
 
-      console.log('✅ Message sent successfully:', data);
+      console.log('✅ Message sent successfully');
 
-      // Replace temp message with real one
       setMessages((prev) =>
         prev.map(m => m.tempId === tempMessage.tempId ? data : m)
       );
     } catch (error) {
       console.error('❌ Error sending message:', error);
 
-      // Remove optimistic message on error
       setMessages((prev) => prev.filter(m => m.tempId !== tempMessage.tempId));
-
-      // Restore message to input
       setNewMessage(messageText);
+    }
+  }
+
+  async function handleAIAssist() {
+    if (messages.length === 0) {
+      alert('No chat history to analyze!');
+      return;
+    }
+
+    try {
+      console.log('🤖 Generating AI chat response...');
+      const result = await chatAssist(messages);
+
+      // Send AI response as a message from "AI Assistant"
+      const supabase = createClient();
+
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .insert({
+          widget_id: widget.id,
+          user_id: 'ai-assistant',
+          user_name: 'AI Assistant',
+          message: result,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ AI response sent');
+
+      // Add to local state immediately
+      setMessages((prev) => [...prev, data]);
+
+    } catch (error) {
+      console.error('❌ Failed to get AI assistance:', error);
+      alert('Failed to get AI response. Please try again.');
     }
   }
 
@@ -164,7 +197,7 @@ export default function ChatWidget({ widget }) {
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center text-gray-400">
-        Loading messages...
+        <Loader2 className="h-6 w-6 animate-spin" />
       </div>
     );
   }
@@ -180,23 +213,30 @@ export default function ChatWidget({ widget }) {
         ) : (
           messages.map((msg) => {
             const isOwn = msg.user_id === user.id;
+            const isAI = msg.user_id === 'ai-assistant';
             const messageId = msg.id || msg.tempId;
 
             return (
               <div
                 key={messageId}
-                className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
+                className={`flex gap-3 ${isOwn && !isAI ? 'flex-row-reverse' : ''}`}
               >
                 <Avatar className="h-8 w-8 flex-shrink-0">
-                  <AvatarFallback>
-                    {msg.user_name?.charAt(0).toUpperCase() || '?'}
-                  </AvatarFallback>
+                  {isAI ? (
+                    <AvatarFallback className="bg-purple-600 text-white">
+                      <Sparkles className="h-4 w-4" />
+                    </AvatarFallback>
+                  ) : (
+                    <AvatarFallback>
+                      {msg.user_name?.charAt(0).toUpperCase() || '?'}
+                    </AvatarFallback>
+                  )}
                 </Avatar>
 
-                <div className={`flex-1 ${isOwn ? 'text-right' : ''}`}>
+                <div className={`flex-1 ${isOwn && !isAI ? 'text-right' : ''}`}>
                   <div className="flex items-baseline gap-2 mb-1">
-                    <span className={`text-sm font-medium ${isOwn ? 'order-2' : ''}`}>
-                      {isOwn ? 'You' : msg.user_name}
+                    <span className={`text-sm font-medium ${isOwn && !isAI ? 'order-2' : ''} ${isAI ? 'text-purple-600 dark:text-purple-400' : ''}`}>
+                      {isAI ? '🤖 AI Assistant' : isOwn ? 'You' : msg.user_name}
                     </span>
                     <span className="text-xs text-gray-500">
                       {format(new Date(msg.created_at), 'HH:mm')}
@@ -207,7 +247,9 @@ export default function ChatWidget({ widget }) {
                   </div>
                   <div
                     className={`inline-block px-4 py-2 rounded-lg ${
-                      isOwn
+                      isAI
+                        ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-900 dark:text-purple-100 border border-purple-300 dark:border-purple-700'
+                        : isOwn
                         ? 'bg-blue-600 text-white'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                     } ${msg.tempId ? 'opacity-70' : ''}`}
@@ -221,6 +263,31 @@ export default function ChatWidget({ widget }) {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* AI Assistant Button */}
+      {messages.length > 0 && (
+        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+          <Button
+            onClick={handleAIAssist}
+            disabled={aiLoading}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            {aiLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                AI is thinking...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4 mr-2" />
+                Ask AI Assistant
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Input */}
       <form onSubmit={sendMessage} className="p-4 border-t border-gray-200 dark:border-gray-700">

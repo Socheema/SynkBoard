@@ -8,7 +8,9 @@ import { useWorkspaceStore } from '@/lib/store/workspaceStore';
 import { useWidgetStore } from '@/lib/store/widgetStore';
 import { useRealtimeWidgets } from '@/hook/useRealtime';
 import Board from '@/components/board/Board';
-import { Loader2 } from 'lucide-react';
+import BoardSkeleton from '@/components/board/BoardSkeleton';
+import { Button } from '@/components/ui/button';
+import { AlertCircle } from 'lucide-react';
 
 export default function WorkspacePage() {
   const params = useParams();
@@ -17,20 +19,30 @@ export default function WorkspacePage() {
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const { setCurrentWorkspace, currentWorkspace } = useWorkspaceStore();
-  const { setWidgets, reset: resetWidgets } = useWidgetStore();
+  const { setCurrentWorkspace } = useWorkspaceStore();
+  const { setWidgets, reset: resetWidgets, widgets } = useWidgetStore();
 
-  // Enable realtime sync
+  useEffect(() => {
+    console.log('🚀 WorkspacePage mounted for workspace:', workspaceId);
+    console.log('👤 User:', user?.id);
+  }, []);
+
   useRealtimeWidgets(workspaceId);
 
   useEffect(() => {
-    if (!workspaceId || !user) return;
+    if (!workspaceId || !user) {
+      console.log('⏳ Waiting for workspaceId and user...');
+      return;
+    }
 
-    // Reset widgets when workspace changes
+    console.log('✅ WorkspaceId and user ready, loading data...');
     resetWidgets();
-
     loadWorkspaceData();
   }, [workspaceId, user]);
+
+  useEffect(() => {
+    console.log('📊 Current widget count:', widgets.length);
+  }, [widgets.length]);
 
   async function loadWorkspaceData() {
     try {
@@ -38,7 +50,8 @@ export default function WorkspacePage() {
       setError(null);
       const supabase = createClient();
 
-      // Load workspace details
+      console.log('📡 Fetching workspace data for:', workspaceId);
+
       const { data: workspace, error: workspaceError } = await supabase
         .from('workspaces')
         .select('*')
@@ -47,7 +60,8 @@ export default function WorkspacePage() {
 
       if (workspaceError) throw workspaceError;
 
-      // Check if user is a member
+      console.log('✅ Workspace loaded:', workspace.name);
+
       const { data: membership, error: memberError } = await supabase
         .from('workspace_members')
         .select('role')
@@ -59,10 +73,10 @@ export default function WorkspacePage() {
         throw new Error('You are not a member of this workspace');
       }
 
+      console.log('✅ User role:', membership.role);
       setCurrentWorkspace({ ...workspace, role: membership.role });
 
-      // Load widgets
-      const { data: widgets, error: widgetsError } = await supabase
+      const { data: widgetsData, error: widgetsError } = await supabase
         .from('widgets')
         .select('*')
         .eq('workspace_id', workspaceId)
@@ -70,8 +84,8 @@ export default function WorkspacePage() {
 
       if (widgetsError) throw widgetsError;
 
-      console.log('📦 Loaded widgets:', widgets);
-      setWidgets(widgets || []);
+      console.log('📦 Loaded widgets:', widgetsData?.length || 0);
+      setWidgets(widgetsData || []);
     } catch (error) {
       console.error('❌ Error loading workspace:', error);
       setError(error.message);
@@ -81,21 +95,20 @@ export default function WorkspacePage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-400 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">Loading workspace...</p>
-        </div>
-      </div>
-    );
+    return <BoardSkeleton />;
   }
 
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center max-w-md">
-          <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            {error}
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Please check your permissions or try again later.
+          </p>
           <Button onClick={() => router.push('/dashboard')}>
             Back to Dashboard
           </Button>

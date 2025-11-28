@@ -1,22 +1,34 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useWidgetStore } from '@/lib/store/widgetStore';
 
 export function useRealtimeWidgets(workspaceId) {
-  const { setWidgets, addWidget, updateWidget, deleteWidget } = useWidgetStore();
+  const { addWidget, updateWidget, deleteWidget } = useWidgetStore();
+  const channelRef = useRef(null);
 
   useEffect(() => {
-    if (!workspaceId) return;
-
-    const supabase = createClient();
+    if (!workspaceId) {
+      console.log('⚠️ No workspaceId provided, skipping realtime setup');
+      return;
+    }
 
     console.log('🔌 Setting up realtime subscription for workspace:', workspaceId);
 
-    // Subscribe to widget changes
+    const supabase = createClient();
+
+    // Clean up existing channel if any
+    if (channelRef.current) {
+      console.log('🧹 Cleaning up existing channel');
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
+    // Create channel with specific configuration
     const channel = supabase
-      .channel(`workspace:${workspaceId}`, {
+      .channel(`workspace-${workspaceId}`, {
         config: {
-          broadcast: { self: true }, // Important: receive your own updates
+          broadcast: { self: true },
+          presence: { key: '' },
         },
       })
       .on(
@@ -28,7 +40,7 @@ export function useRealtimeWidgets(workspaceId) {
           filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload) => {
-          console.log('✅ Widget inserted:', payload.new);
+          console.log('✅ [INSERT] Widget created:', payload.new.id);
           addWidget(payload.new);
         }
       )
@@ -41,8 +53,7 @@ export function useRealtimeWidgets(workspaceId) {
           filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload) => {
-          console.log('✅ Widget updated:', payload.new);
-          // Force update the entire widget object to trigger re-render
+          console.log('✅ [UPDATE] Widget updated:', payload.new.id);
           updateWidget(payload.new.id, payload.new);
         }
       )
@@ -55,18 +66,52 @@ export function useRealtimeWidgets(workspaceId) {
           filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload) => {
-          console.log('✅ Widget deleted:', payload.old);
+          console.log('✅ [DELETE] Widget deleted:', payload.old);
+
+          if (!payload.old || !payload.old.id) {
+            console.error('❌ DELETE payload missing id:', payload);
+            return;
+          }
+
+          console.log('🗑️ Removing widget from store:', payload.old.id);
           deleteWidget(payload.old.id);
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Realtime subscription status:', status);
+      .on('system', {}, (payload) => {
+        console.log('🔔 System event:', payload);
+      })
+      .subscribe((status, err) => {
+        console.log('📡 Subscription status:', status);
+
+        if (err) {
+          console.error('❌ Subscription error:', err);
+        }
+
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to realtime updates');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Channel error - realtime not working');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Subscription timed out - retrying...');
+          // Retry logic
+          setTimeout(() => {
+            if (channelRef.current) {
+              supabase.removeChannel(channelRef.current);
+              channelRef.current = null;
+            }
+          }, 1000);
+        }
       });
 
-    // Cleanup on unmount or workspace change
+    channelRef.current = channel;
+
+    // Cleanup on unmount
     return () => {
       console.log('🔌 Cleaning up realtime subscription');
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, [workspaceId, addWidget, updateWidget, deleteWidget]);
 }

@@ -6,37 +6,46 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Loader2, X } from 'lucide-react';
+import { useAI } from '@/hook/useAI';
 
 export default function ChartWidget({ widget, canEdit }) {
   const [chartType, setChartType] = useState(widget.content?.type || 'line');
   const [data, setData] = useState(widget.content?.data || []);
+  const [aiInsights, setAiInsights] = useState(widget.content?.aiInsights || null);
   const [newLabel, setNewLabel] = useState('');
   const [newValue, setNewValue] = useState('');
 
-  // Use ref to track if we're currently updating to prevent loops
   const isUpdatingRef = useRef(false);
+  const { loading: aiLoading, analyzeChart } = useAI();
 
   // Update local state when widget content changes from realtime
   useEffect(() => {
-    if (isUpdatingRef.current) return; // Skip if we're the ones updating
+    if (isUpdatingRef.current) return;
 
     const newType = widget.content?.type || 'line';
     const newData = widget.content?.data || [];
+    const newInsights = widget.content?.aiInsights || null;
 
-    // Only update if actually different (deep comparison for data)
+    // Only update if actually different
     const dataChanged = JSON.stringify(newData) !== JSON.stringify(data);
     const typeChanged = newType !== chartType;
+    const insightsChanged = newInsights !== aiInsights;
 
     if (dataChanged || typeChanged) {
       console.log('📊 Chart widget content updated from realtime');
       setChartType(newType);
       setData(newData);
     }
-  }, [widget.content?.type, widget.content?.data]); // Only depend on widget.content
+
+    if (insightsChanged) {
+      console.log('✨ AI Insights updated from realtime');
+      setAiInsights(newInsights);
+    }
+  }, [widget.content?.type, widget.content?.data, widget.content?.aiInsights]);
 
   async function updateChart(updates) {
-    isUpdatingRef.current = true; // Mark that we're updating
+    isUpdatingRef.current = true;
 
     try {
       const supabase = createClient();
@@ -44,9 +53,10 @@ export default function ChartWidget({ widget, canEdit }) {
       const newContent = {
         type: updates.type !== undefined ? updates.type : chartType,
         data: updates.data !== undefined ? updates.data : data,
+        aiInsights: updates.aiInsights !== undefined ? updates.aiInsights : aiInsights,
       };
 
-      console.log('💾 Saving chart update:', newContent);
+      console.log('💾 Saving chart update');
 
       const { error } = await supabase
         .from('widgets')
@@ -62,7 +72,6 @@ export default function ChartWidget({ widget, canEdit }) {
     } catch (error) {
       console.error('❌ Error updating chart:', error);
     } finally {
-      // Reset flag after a short delay to allow realtime to propagate
       setTimeout(() => {
         isUpdatingRef.current = false;
       }, 1000);
@@ -71,7 +80,7 @@ export default function ChartWidget({ widget, canEdit }) {
 
   async function handleTypeChange(newType) {
     setChartType(newType);
-    await updateChart({ type: newType, data });
+    await updateChart({ type: newType, data, aiInsights });
   }
 
   async function addDataPoint(e) {
@@ -88,7 +97,7 @@ export default function ChartWidget({ widget, canEdit }) {
     ];
 
     setData(newData);
-    await updateChart({ type: chartType, data: newData });
+    await updateChart({ type: chartType, data: newData, aiInsights });
 
     setNewLabel('');
     setNewValue('');
@@ -97,7 +106,49 @@ export default function ChartWidget({ widget, canEdit }) {
   async function deleteDataPoint(index) {
     const newData = data.filter((_, i) => i !== index);
     setData(newData);
-    await updateChart({ type: chartType, data: newData });
+    await updateChart({ type: chartType, data: newData, aiInsights });
+  }
+
+  async function handleAIAnalyze() {
+    if (data.length < 2) {
+      alert('Add at least 2 data points to analyze!');
+      return;
+    }
+
+    try {
+      console.log('🤖 Generating AI chart insights...');
+      const result = await analyzeChart(data, chartType);
+
+      // Save insights to database so it syncs to all users
+      await updateChart({
+        type: chartType,
+        data,
+        aiInsights: result
+      });
+
+      console.log('✅ AI insights saved and will sync to all users');
+      setAiInsights(result);
+
+    } catch (error) {
+      console.error('❌ Failed to analyze chart:', error);
+      alert('Failed to generate insights. Please try again.');
+    }
+  }
+
+  async function handleClearInsights() {
+    try {
+      await updateChart({
+        type: chartType,
+        data,
+        aiInsights: null
+      });
+
+      console.log('✅ AI insights cleared');
+      setAiInsights(null);
+
+    } catch (error) {
+      console.error('❌ Failed to clear insights:', error);
+    }
   }
 
   const ChartComponent = chartType === 'line' ? LineChart : BarChart;
@@ -120,6 +171,33 @@ export default function ChartWidget({ widget, canEdit }) {
         </div>
       )}
 
+      {/* AI Insights Panel */}
+      {aiInsights && (
+        <div className="px-4 py-3 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <p className="text-xs font-medium text-green-700 dark:text-green-300 mb-1 flex items-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                AI Insights
+              </p>
+              <p className="text-sm text-green-900 dark:text-green-100">
+                {aiInsights}
+              </p>
+            </div>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleClearInsights}
+                className="h-6 w-6 p-0 hover:bg-green-100 dark:hover:bg-green-800"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Chart display */}
       <div className="flex-1 p-4 overflow-auto">
         {data.length === 0 ? (
@@ -139,6 +217,31 @@ export default function ChartWidget({ widget, canEdit }) {
           </ResponsiveContainer>
         )}
       </div>
+
+      {/* AI Analyze Button */}
+      {canEdit && data.length >= 2 && (
+        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+          <Button
+            onClick={handleAIAnalyze}
+            disabled={aiLoading}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            {aiLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Analyzing Data...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4 mr-2" />
+                {aiInsights ? 'Regenerate Insights' : 'AI Analyze Data'}
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Add data form */}
       {canEdit && (

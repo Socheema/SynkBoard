@@ -5,39 +5,53 @@ import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Loader2, X } from 'lucide-react';
+import { useAI } from '@/hook/useAI';
 
 export default function TaskWidget({ widget, canEdit }) {
   const [tasks, setTasks] = useState(widget.content?.tasks || []);
+  const [aiSuggestions, setAiSuggestions] = useState(widget.content?.aiSuggestions || null);
   const [newTask, setNewTask] = useState('');
   const isUpdatingRef = useRef(false);
+
+  const { loading: aiLoading, suggestTasks: aiSuggestTasks } = useAI();
 
   // Update local state when widget content changes from realtime
   useEffect(() => {
     if (isUpdatingRef.current) return;
 
     const newTasks = widget.content?.tasks || [];
+    const newSuggestions = widget.content?.aiSuggestions || null;
 
     // Only update if actually different
     if (JSON.stringify(newTasks) !== JSON.stringify(tasks)) {
       console.log('✅ Task widget content updated from realtime');
       setTasks(newTasks);
     }
-  }, [widget.content?.tasks]); // Only depend on widget.content.tasks
 
-  async function updateTasks(updatedTasks) {
+    // Update AI suggestions from realtime
+    if (newSuggestions !== aiSuggestions) {
+      console.log('✨ AI Suggestions updated from realtime');
+      setAiSuggestions(newSuggestions);
+    }
+  }, [widget.content?.tasks, widget.content?.aiSuggestions]);
+
+  async function updateTasks(updatedTasks, preserveSuggestions = true) {
     isUpdatingRef.current = true;
     setTasks(updatedTasks);
 
     try {
       const supabase = createClient();
 
-      console.log('💾 Saving tasks:', updatedTasks);
+      console.log('💾 Saving tasks:', updatedTasks.length);
 
       const { error } = await supabase
         .from('widgets')
         .update({
-          content: { tasks: updatedTasks },
+          content: {
+            tasks: updatedTasks,
+            aiSuggestions: preserveSuggestions ? aiSuggestions : null
+          },
           updated_at: new Date().toISOString(),
         })
         .eq('id', widget.id);
@@ -82,6 +96,66 @@ export default function TaskWidget({ widget, canEdit }) {
     await updateTasks(updatedTasks);
   }
 
+  async function handleAISuggest() {
+    if (tasks.length === 0) {
+      alert('Add at least one task first!');
+      return;
+    }
+
+    try {
+      console.log('🤖 Generating AI task suggestions...');
+      const result = await aiSuggestTasks(tasks);
+
+      // Save suggestions to database so it syncs to all users
+      const supabase = createClient();
+
+      const { error } = await supabase
+        .from('widgets')
+        .update({
+          content: {
+            tasks: tasks,
+            aiSuggestions: result
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', widget.id);
+
+      if (error) throw error;
+
+      console.log('✅ AI suggestions saved and will sync to all users');
+      setAiSuggestions(result);
+
+    } catch (error) {
+      console.error('❌ Failed to get suggestions:', error);
+      alert('Failed to generate suggestions. Please try again.');
+    }
+  }
+
+  async function handleClearSuggestions() {
+    try {
+      const supabase = createClient();
+
+      const { error } = await supabase
+        .from('widgets')
+        .update({
+          content: {
+            tasks: tasks,
+            aiSuggestions: null
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', widget.id);
+
+      if (error) throw error;
+
+      console.log('✅ AI suggestions cleared');
+      setAiSuggestions(null);
+
+    } catch (error) {
+      console.error('❌ Failed to clear suggestions:', error);
+    }
+  }
+
   const completedCount = tasks.filter((t) => t.completed).length;
 
   return (
@@ -100,6 +174,31 @@ export default function TaskWidget({ widget, canEdit }) {
           </div>
         )}
       </div>
+
+      {/* AI Suggestions Panel */}
+      {aiSuggestions && (
+        <div className="px-4 py-3 bg-purple-50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <p className="text-xs font-medium text-purple-700 dark:text-purple-300 flex items-center gap-1">
+              <Sparkles className="h-3 w-3" />
+              AI Suggested Tasks
+            </p>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleClearSuggestions}
+                className="h-6 w-6 p-0 hover:bg-purple-100 dark:hover:bg-purple-800"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <div className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-line">
+            {aiSuggestions}
+          </div>
+        </div>
+      )}
 
       {/* Task list */}
       <div className="flex-1 overflow-auto p-4 space-y-2">
@@ -142,6 +241,31 @@ export default function TaskWidget({ widget, canEdit }) {
         )}
       </div>
 
+      {/* AI Button */}
+      {canEdit && tasks.length > 0 && (
+        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+          <Button
+            onClick={handleAISuggest}
+            disabled={aiLoading}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            {aiLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Getting Suggestions...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4 mr-2" />
+                {aiSuggestions ? 'Regenerate Suggestions' : 'AI Task Suggestions'}
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+
       {/* Add task form */}
       {canEdit && (
         <form onSubmit={addTask} className="p-4 border-t border-gray-200 dark:border-gray-700">
@@ -161,3 +285,4 @@ export default function TaskWidget({ widget, canEdit }) {
     </div>
   );
 }
+
