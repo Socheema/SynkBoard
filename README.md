@@ -199,7 +199,7 @@ MIT License - see [LICENSE](LICENSE)
 
 A. Chima - [https://x.com/tech_chi]
 
-Project Link: [https://github.com/socheema/synkboard]
+Project Link: [https://synkboardd.vercel.app/]
 ---
 
 Made with ❤️ and ☕ by Azubuike Chima
