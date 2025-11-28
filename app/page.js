@@ -8,7 +8,7 @@ export default function HomePage() {
         {/* Header */}
         <nav className="flex justify-between items-center mb-20">
           <div className="text-white text-2xl font-bold">
-            🚀 SynkBoard
+            SynkBoard
           </div>
           <div className="space-x-4">
             <Link href="/sign-in">

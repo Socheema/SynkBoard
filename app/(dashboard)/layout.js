@@ -17,7 +17,7 @@ export default function DashboardLayout({ children }) {
           {/* Left: Logo + Workspace Switcher */}
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-              🚀 SynkBoard
+            SynkBoard
             </h1>
             <WorkspaceSwitcher />
           </div>
